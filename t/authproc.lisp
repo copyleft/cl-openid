@@ -76,16 +76,16 @@
   (signals error (make-auth-process "=test"))
   (signals error (make-auth-process "http://common-lisp.net/project/cl-openid/unexisting"))
   (signals error (make-auth-process "http://test.invalid/"))
-  (dolist (test-case '(("common-lisp.net" . "http://common-lisp.net/")
+  (dolist (test-case '(("common-lisp.net" . "https://common-lisp.net/")
 
-                       ("http://common-lisp.net" . "http://common-lisp.net/")
-                       ("http://common-lisp.net/" . "http://common-lisp.net/")
+                       ("http://common-lisp.net" . "https://common-lisp.net/")
+                       ("http://common-lisp.net/" . "https://common-lisp.net/")
                        #+SSL ("https://openid.net/" . "https://openid.net/")
 
-                       ("http://trac.common-lisp.net/cl-openid" . "http://trac.common-lisp.net/cl-openid")
-                       ("http://trac.common-lisp.net/cl-openid/" . "http://trac.common-lisp.net/cl-openid/")
+                       ("http://trac.common-lisp.net/cl-openid" . "https://trac.common-lisp.net/cl-openid")
+                       ("http://trac.common-lisp.net/cl-openid/" . "https://trac.common-lisp.net/cl-openid/")
 
-                       ("http://Common-Lisp.NET/../t/../project/./%63l-openi%64/./index.shtml" . "http://common-lisp.net/project/cl-openid/index.shtml")))
+                       ("http://Common-Lisp.NET/../t/../project/./%63l-openi%64/./index.shtml" . "https://common-lisp.net/project/cl-openid/index.shtml")))
     (is (string= (princ-to-string (claimed-id (make-auth-process (car test-case))))
                  (cdr test-case)))))
 
