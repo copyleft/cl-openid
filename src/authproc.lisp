@@ -228,7 +228,7 @@ are the same."
                          v1oplocal (let ((delegate (xmls:xmlrep-find-child-tag "Delegate" service nil)))
                                      (when delegate
                                        (xmls:xmlrep-string-child delegate)))
-                         v1type type))))))))))
+                         v1type type-string))))))))))
   (cond
     (endpoint (setf (provider-endpoint-uri authproc) (uri endpoint)
                     (op-local-id authproc) (maybe-uri oplocal)))
