@@ -169,16 +169,14 @@ be included in returned structure."
 
 (defun perform-xrds-discovery (authproc body
                                &aux (parsed (xmls:parse body))
-                               prio endpoint oplocal
-                               v1prio v1endpoint v1oplocal v1type)
-  (assert (member (car parsed) '(("XRDS" . "xri://$xrds")
-                                 ("XRDS" . "xri://\\$xrds")) ; http://www.mediawiki.org/wiki/Extension:OpenID possible bug
-                  :test #'equal)
-          ((car parsed)))
+                                 prio endpoint oplocal
+                                 v1prio v1endpoint v1oplocal v1type)
+  "See: https://openid.net/specs/yadis-v1.0.pdf"
+  (assert (equalp (xmls:node-name parsed) "XRDS"))
+  (assert (member (xmls:node-ns parsed) '("xri://$xrds" "xri://\\$xrds") :test 'equal))
   (flet ((priority (service)
            "Priority of a service tag: an integer or NIL"
-           (let ((prio (second (assoc "priority" (second service)
-                                      :test #'string=))))
+           (let ((prio (xmls:xmlrep-attrib-value "priority" service nil)))
              (when prio
                (parse-integer prio))))
 
@@ -195,58 +193,51 @@ are the same."
 
          (uri (service)
            "URI of a service tag as a string"
-           (third (find '("URI" . "xri://$xrd*($v*2.0)") service
-                        :key #'car :test #'equal))))
+           (let ((uri-node (xmls:xmlrep-find-child-tag "URI" service nil)))
+             (and uri-node (xmls:xmlrep-string-child uri-node nil)))))
 
-    (dolist (service  (remove '("Service" . "xri://$xrd*($v*2.0)")
-                              (cddar ; Yadis 1.0, 7.3.1 XRDS -- last XRD element
-                               (last (remove '("XRD" . "xri://$xrd*($v*2.0)")
-                                             (xmls:node-children parsed)
-                                             :test-not #'equal :key #'car)))
-                              :test-not #'equal :key #'car))
-      (dolist (type (mapcar #'third (remove '("Type" . "xri://$xrd*($v*2.0)")
-                                            (xmls:node-children service)
-                                            :test-not #'equal :key #'car)))
-        (cond
-          ;; 2.0
-          ((string= type "http://specs.openid.net/auth/2.0/server")
-           (let ((sprio (priority service)))
-             (when (or (null endpoint) (prio< sprio prio))
-               (setf endpoint (uri service)
-                     oplocal nil))))
+    ;; A Yadis document MAY contain more than one XRD in the XRDS and MAY contain other elements inthe XRDS, in addition to XRD elements.If a Yadis XRDS includes more than one XRD element, the Yadis Resource Descriptor is the last XRDelement. A Relying Party Agent MAY ignore other XRD elements.A Relying Party Agent MAY ignore all other elements in an XRDS.
+    (let ((xrd (first (last (xmls:xmlrep-find-child-tags "XRD" parsed)))))
+      (dolist (service (xmls:xmlrep-find-child-tags "Service" xrd))
+        (dolist (type (xmls:xmlrep-find-child-tags "Type" service))
+          (let ((type-string (xmls:xmlrep-string-child type nil)))
+            (cond
+              ;; 2.0
+              ((string= type-string "http://specs.openid.net/auth/2.0/server")
+               (let ((sprio (priority service)))
+                 (when (or (null endpoint) (prio< sprio prio))
+                   (setf endpoint (uri service)
+                         oplocal nil))))
 
-          ((string= type "http://specs.openid.net/auth/2.0/signon")
-           (let ((sprio (priority service)))
-             (when (or (null endpoint) (prio< sprio prio))
-               (setf prio sprio
-                     endpoint (uri service)
-                     oplocal (third (find '("LocalID" . "xri://$xrd*($v*2.0)")
-                                          (xmls:node-children service)
-                                          :test #'equal :key #'car))))))
+              ((string= type-string "http://specs.openid.net/auth/2.0/signon")
+               (let ((sprio (priority service)))
+                 (when (or (null endpoint) (prio< sprio prio))
+                   (setf prio sprio
+                         endpoint (uri service)
+                         oplocal (let ((oplocal-node (xmls:xmlrep-find-child-tag "LocalID" service nil)))
+                                   (and oplocal-node (xmls:xmlrep-string-child oplocal-node)))))))             
 
-          ;; 1.x
-          ((member type '("http://openid.net/server/1.0" "http://openid.net/server/1.1"
-                          "http://openid.net/signon/1.0" "http://openid.net/signon/1.1")
-                   :test #'string=)
-           (let ((sprio (priority service)))
-             (when (or (null v1endpoint) (prio< sprio v1prio))
-               (setf v1prio sprio
-                     v1endpoint (uri service)
-                     v1oplocal (let ((delegate (find '("Delegate" . "http://openid.net/xmlns/1.0")
-                                                     (xmls:node-children service)
-                                                     :test #'equal :key #'car)))
-                                 (when delegate
-                                   (third delegate)))
-                     v1type type))))))))
+              ;; 1.x
+              ((member type-string '("http://openid.net/server/1.0" "http://openid.net/server/1.1"
+                                     "http://openid.net/signon/1.0" "http://openid.net/signon/1.1")
+                       :test #'string=)
+               (let ((sprio (priority service)))
+                 (when (or (null v1endpoint) (prio< sprio v1prio))
+                   (setf v1prio sprio
+                         v1endpoint (uri service)
+                         v1oplocal (let ((delegate (xmls:xmlrep-find-child-tag "Delegate" service nil)))
+                                     (when delegate
+                                       (xmls:xmlrep-string-child delegate)))
+                         v1type type))))))))))
   (cond
     (endpoint (setf (provider-endpoint-uri authproc) (uri endpoint)
                     (op-local-id authproc) (maybe-uri oplocal)))
-    (v1endpoint (setf (protocol-version authproc)  (or (cdr (assoc v1type +protocol-versions+
-                                                                   :test #'equal))
-                                                       '(1 . 1))
+    (v1endpoint (setf (protocol-version authproc)
+                      (or (cdr (assoc v1type +protocol-versions+
+                                      :test #'equal))
+                          '(1 . 1))
                       (provider-endpoint-uri authproc) (uri v1endpoint)
                       (op-local-id authproc) (maybe-uri v1oplocal))))
-
   authproc)
 
 (define-condition openid-discovery-error (simple-error)
